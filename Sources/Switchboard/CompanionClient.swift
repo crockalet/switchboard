@@ -1,15 +1,8 @@
-//
-//  CompanionClient.swift
-//  Switchboard
-//
-//  The controllable half. Everything that runs a command lives behind this
-//  HTTP boundary, in a CLI the user installs separately, because the reviewed
-//  bundle must not be the thing that executes user-supplied strings.
-//
+// Command execution stays behind the companion's HTTP boundary: the reviewed
+// bundle must not run user-supplied strings.
 
 import Foundation
 
-/// The companion's wire shape for one service.
 private struct CompanionService: Decodable {
     let id: String
     let name: String
@@ -35,7 +28,7 @@ private struct CompanionResult: Decodable {
     let message: String?
 }
 
-/// Why the companion could not be reached, in words a settings pane can show.
+/// Why the companion could not be reached.
 public enum CompanionError: Error, Sendable {
     case notInstalled
     case refused(String)
@@ -51,8 +44,7 @@ public struct CompanionClient: Sendable {
     public init(port: Int = CompanionClient.defaultPort) {
         self.baseURL = URL(string: "http://127.0.0.1:\(port)")!
         let configuration = URLSessionConfiguration.ephemeral
-        // The companion is on loopback. If it does not answer in well under a
-        // second it is not running, and the shelf should not wait on it.
+        // Loopback: if the companion does not answer quickly, it is not running.
         configuration.timeoutIntervalForRequest = 1.5
         configuration.waitsForConnectivity = false
         self.session = URLSession(configuration: configuration)
@@ -100,8 +92,7 @@ public struct CompanionClient: Sendable {
         }
     }
 
-    /// The tail of one service's log. `path` is nil when the agent could not
-    /// work out where the service logs, which is a real answer worth showing.
+    /// The tail; `path` is nil when the agent cannot identify the service's log.
     public func logs(for id: String, lines: Int = 200) async throws -> (path: String?, lines: [String]) {
         var components = URLComponents(
             url: baseURL.appendingPathComponent("v1/services/\(id)/logs"),
@@ -124,8 +115,7 @@ public struct CompanionClient: Sendable {
         return (decoded.path, decoded.lines)
     }
 
-    /// Start, stop or restart. `id` is the companion-side id, without the
-    /// `companion:` prefix Switchboard adds for its own row identity.
+    /// Start, stop or restart; `id` is companion-side, without `companion:`.
     public func perform(_ action: String, on id: String) async throws {
         var request = URLRequest(url: baseURL.appendingPathComponent("v1/services/\(id)/\(action)"))
         request.httpMethod = "POST"

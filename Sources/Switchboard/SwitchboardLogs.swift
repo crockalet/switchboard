@@ -1,22 +1,10 @@
-//
-//  SwitchboardLogs.swift
-//  Switchboard
-//
-//  The log takeover. This is the one surface that justifies a takeover rather
-//  than a bigger list: a log needs the room, and it is the reason you opened
-//  Switchboard rather than glanced at it.
-//
+// A log needs room enough to justify a takeover, not a bigger list.
 
 import Combine
 import DroppyKit
 import SwiftUI
 
-/// Tails one service's log, and only while something is watching.
-///
-/// The poll starts when the view appears and stops when it disappears or the
-/// host takes the surface down. Nothing here runs in the background: a tail
-/// that outlives its surface is the "work that does not stop" rejection, and it
-/// would also be reading a file every second for nobody.
+/// Tails one service's log only while its surface is visible.
 @MainActor
 public final class LogTail: ObservableObject {
     @Published public private(set) var lines: [String] = []
@@ -39,8 +27,7 @@ public final class LogTail: ObservableObject {
         self.client = client
     }
 
-    /// Names the service to show. Does not start polling: the view does that
-    /// when it appears, so a surface that is never shown never reads a file.
+    /// Names the service to show; polling starts only when the view appears.
     public func prepare(for service: Service) {
         let id = service.id.hasPrefix("companion:")
             ? String(service.id.dropFirst("companion:".count))
@@ -100,9 +87,7 @@ extension SwitchboardDroplet: ExpandedSurfaceProviding {
                 id: "switchboard.logs",
                 title: "Service log",
                 systemImage: "text.alignleft",
-                // Reading takes longer than the shelf's own grace period, and
-                // the surface carries its own Close, which is the condition the
-                // SDK puts on asking for this.
+                // Logs outlive the shelf's grace period and have their own Close.
                 suppresses: .autoCollapse
             )
         ]
@@ -115,12 +100,8 @@ extension SwitchboardDroplet: ExpandedSurfaceProviding {
 
     public func expandedSurfaceSize(_ id: ExpandedSurfaceID, fitting proposal: ExpandedSurfaceSizeProposal) -> CGSize? {
         guard id == "switchboard.logs" else { return nil }
-        // A log wants every line it can get. The host clamps to maximumSize
-        // rather than refusing, so asking for the ceiling is safe, and the
-        // standard size — 93pt with an empty tail — is unreadable for this.
-        // Height to the ceiling, width left at the standard: the shelf has a
-        // width people recognise, and a takeover that stretches past it reads
-        // as a different app rather than a Droppy surface.
+        // The host clamps maximumSize; the standard height is unreadable, while
+        // the standard width keeps the takeover recognisably Droppy.
         return CGSize(
             width: proposal.standardSize.width,
             height: proposal.maximumSize.height
@@ -132,8 +113,7 @@ extension SwitchboardDroplet: ExpandedSurfaceProviding {
         presentation: ExpandedSurfacePresentation,
         reason: ExpandedSurfaceDismissalReason
     ) {
-        // Every way out lands here, including our own dismiss, so this is the
-        // one place the tail has to stop.
+        // Every dismissal path lands here, including our own.
         logTail.stop()
     }
 }
@@ -156,7 +136,6 @@ private struct LogSurface: View {
         }
         .padding(DroppySpacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // The whole point of the surface: read only while it is on screen.
         .onAppear { tail.start() }
         .onDisappear { tail.stop() }
     }
@@ -202,7 +181,6 @@ private struct LogSurface: View {
                 }
             }
             .onChange(of: tail.lines.count) { _, count in
-                // A log is read at the bottom.
                 guard count > 0 else { return }
                 proxy.scrollTo(count - 1, anchor: .bottom)
             }

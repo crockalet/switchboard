@@ -16,21 +16,15 @@ extension SwitchboardDroplet: ShelfWidgetProviding {
                 layoutTraits: ShelfWidgetLayoutTraits(
                     preferredSoloWidth: 420,
                     preferredPairedWidth: 210,
-                    // The height the rows actually need. `widgetDescriptors` is
-                    // a computed property the host re-reads on a state-change
-                    // broadcast, so this tracks the list instead of declaring a
-                    // fixed card with dead space under a short one. Resizing a
-                    // mounted widget would be shelf.invalidateLayout(for:),
-                    // which costs the `shelf-write` capability; it is not worth
-                    // one for this.
+                    // The host re-reads descriptors on state changes, so track
+                    // the list instead of reserving space for a fixed card.
                     contentHeight: .fixed(Self.cardHeight(rows: store.services.count))
                 )
             )
         ]
     }
 
-    /// Header, then one 26pt row per service with 6pt between them, capped at
-    /// the four rows the widget shows. The empty state needs room for two lines.
+    /// Header plus up to four 26pt rows, with room for the empty state.
     static func cardHeight(rows: Int) -> CGFloat {
         let header: CGFloat = 20 + DroppySpacing.sm
         guard rows > 0 else { return header + 40 }
@@ -45,7 +39,7 @@ extension SwitchboardDroplet: ShelfWidgetProviding {
     public func makeWidgetSettingsPopover(_ id: ShelfWidgetID) -> AnyView? { nil }
 }
 
-/// Solo and paired are different compositions, not one view at two widths.
+/// Paired is a distinct composition, not the solo view at half width.
 private struct SwitchboardWidget: View {
     @ObservedObject var droplet: SwitchboardDroplet
     @ObservedObject var store: SwitchboardStore
@@ -88,8 +82,7 @@ private struct SwitchboardWidget: View {
             Text("Switchboard")
                 .font(.system(size: 12, weight: .semibold))
             Spacer(minLength: 0)
-            // Paired is half the width and the title already fills it; the
-            // count truncates to "1/..." rather than shortening.
+            // Paired is too narrow for the count without awkward truncation.
             if !store.services.isEmpty, !context.isPaired {
                 Text("\(store.runningCount)/\(store.services.count)")
                     .font(.system(size: 11, weight: .medium))
@@ -153,9 +146,7 @@ private struct ServiceRow: View {
                     .foregroundStyle(AdaptiveColors.notchSurfaceTertiaryText)
             }
 
-            // Paired is half the width, so it drops the lifecycle controls —
-            // but opening the thing is the one action worth keeping at any
-            // size, and it is the reason most people look at this row.
+            // Paired drops lifecycle controls, but opening stays useful.
             if isPaired {
                 openButton
             } else {
@@ -183,8 +174,7 @@ private struct ServiceRow: View {
     private var controls: some View {
         openButton
 
-        // Absent for a portless-only row: reading the route table proves the
-        // service exists, not how to restart it.
+        // Absent for a portless-only row: only the companion can restart it.
         if service.actions.contains(.restart), service.status == .running {
             Button {
                 onAction("restart")

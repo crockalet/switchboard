@@ -1,12 +1,4 @@
-//
-//  PortlessSource.swift
-//  Switchboard
-//
-//  The read-only half. Nothing here needs the companion CLI, and nothing here
-//  needs a capability either: `~/.portless` is a dotfile directory in the
-//  user's home, so it is outside every TCC-protected location and a plain
-//  FileManager read reaches it with no prompt.
-//
+// `~/.portless` is outside TCC-protected locations, so no capability is needed.
 
 import Foundation
 
@@ -14,8 +6,7 @@ import Foundation
 private struct PortlessRoute: Decodable {
     let hostname: String
     let port: Int
-    /// `0` for a static alias — portless did not launch it, so it has no child
-    /// to report. Anything else is a live child process id.
+    /// `0` for a static alias; otherwise a live child process id.
     let pid: Int
 }
 
@@ -61,9 +52,7 @@ public struct PortlessSource: Sendable {
         let proxy = proxyStatus()
 
         return routes.map { route in
-            // A managed route carries a real pid, so liveness is a free signal
-            // check. An alias carries 0, and the only honest probe left is to
-            // see whether anything answers on the port.
+            // A real pid is a free liveness signal; an alias needs a port probe.
             let pid: pid_t? = route.pid > 0 ? pid_t(route.pid) : nil
             let status: ServiceStatus = {
                 if let pid { return Self.isAlive(pid) ? .running : .stopped }
@@ -87,8 +76,7 @@ public struct PortlessSource: Sendable {
                 pid: pid,
                 origin: .portless,
                 status: status,
-                // Deliberately empty. Knowing a route exists is not knowing how
-                // to restart what is behind it; that lives in the companion.
+                // Deliberately empty: only the companion knows how to restart it.
                 actions: []
             )
         }
@@ -96,15 +84,13 @@ public struct PortlessSource: Sendable {
 
     // MARK: - Probes
 
-    /// `kill(pid, 0)` asks the kernel whether the process exists without
-    /// touching it. EPERM means it exists and is someone else's.
+    /// `kill(pid, 0)` asks the kernel; `EPERM` still means the process exists.
     static func isAlive(_ pid: pid_t) -> Bool {
         if kill(pid, 0) == 0 { return true }
         return errno == EPERM
     }
 
-    /// A non-blocking connect to loopback, given a short deadline. Enough to
-    /// tell "something is bound here" from "nothing is".
+    /// A short, non-blocking connect distinguishes bound from unbound.
     static func isListening(port: Int, timeout: TimeInterval = 0.12) -> Bool {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }

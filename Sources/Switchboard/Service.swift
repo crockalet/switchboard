@@ -21,11 +21,7 @@ public enum ServiceStatus: String, Codable, Sendable {
     case unknown
 }
 
-/// What Switchboard can do to a service.
-///
-/// The read-only path leaves this empty: reading portless's route table tells
-/// you a service exists, not how to restart it. Only the companion, which owns
-/// the config that names the command, fills these in.
+/// What Switchboard can do to a service. Only the companion fills this in.
 public struct ServiceActions: OptionSet, Codable, Sendable {
     public let rawValue: Int
     public init(rawValue: Int) { self.rawValue = rawValue }
@@ -43,8 +39,7 @@ public struct Service: Identifiable, Sendable, Equatable {
     /// The URL a person would actually open, when there is one.
     public let url: URL?
     public let port: Int?
-    /// The process behind it, when something knows. `nil` for a portless alias,
-    /// whose route table entry carries `"pid": 0`.
+    /// The process behind it, when something knows.
     public let pid: pid_t?
     public let origin: ServiceOrigin
     public var status: ServiceStatus

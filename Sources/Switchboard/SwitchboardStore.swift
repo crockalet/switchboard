@@ -7,12 +7,7 @@ import Combine
 import DroppyKit
 import Foundation
 
-/// Everything the surfaces read, and the one timer that keeps it current.
-///
-/// The refresh task is owned here and cancelled in `stop()`, which the droplet
-/// calls from `deactivate()`. Swift cannot unload code, so a poller that
-/// outlives the droplet keeps polling until Droppy relaunches — that is the
-/// third most common reason a submission is sent back.
+/// Everything the surfaces read, plus the refresh task cancelled in `stop()`.
 @MainActor
 public final class SwitchboardStore: ObservableObject {
     @Published public private(set) var services: [Service] = []
@@ -20,8 +15,7 @@ public final class SwitchboardStore: ObservableObject {
     @Published public private(set) var proxyRunning = false
     @Published public private(set) var lastError: String?
 
-    /// Set by the droplet, which owns every surface. The store decides there
-    /// is something to say; it does not decide how it is shown.
+    /// Set by the droplet, which owns how an announcement is shown.
     public var announce: ((ActionAnnouncement) -> Void)?
 
     /// Seconds between refreshes. Stored, so the settings pane can change it.
@@ -68,9 +62,7 @@ public final class SwitchboardStore: ObservableObject {
     // MARK: - Refresh
 
     public func refresh() async {
-        // The read-only path first, so the list is never empty just because the
-        // companion is missing. File reads and loopback probes are cheap but
-        // they are still syscalls, so they go off the main actor.
+        // Keep the list populated without the companion; probes go off-main.
         let source = portless
         let readOnly = await Task.detached { source.services() }.value
         let proxy = await Task.detached { source.proxyStatus() }.value
@@ -84,8 +76,7 @@ public final class SwitchboardStore: ObservableObject {
             merged = Self.merge(portless: readOnly, companion: controllable)
             lastError = nil
         } catch CompanionError.notInstalled {
-            // Expected whenever the CLI is not installed. Not an error state:
-            // the read-only list above is the product working as designed.
+            // Not an error state: read-only is the designed fallback.
             reachable = false
         } catch {
             reachable = false
@@ -99,9 +90,7 @@ public final class SwitchboardStore: ObservableObject {
         proxyRunning = proxy?.running ?? false
     }
 
-    /// A companion entry and a portless route can describe the same thing. When
-    /// they share a port the companion wins, because it is the one that can act
-    /// — but it inherits the route's URL, which is the nice `.localhost` name.
+    /// Prefer the controllable companion entry, but inherit the route's URL.
     static func merge(portless: [Service], companion: [Service]) -> [Service] {
         var result = companion
         let claimedPorts = Set(companion.compactMap(\.port))
