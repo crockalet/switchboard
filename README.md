@@ -6,9 +6,9 @@ A command center for the web services running on your Mac, on
 
 ## Two halves, on purpose
 
-**Switchboard (this repo)** is the droplet. It declares `network-client` and
-`menu-bar` and nothing else. It reads portless's own route table off disk,
-probes each route for liveness, and draws the list.
+**Switchboard (this repo)** is the droplet. It declares `network-client`,
+`menu-bar`, `hud` and `expanded-surface`, and nothing else. It reads portless's
+own route table off disk, probes each route for liveness, and draws the list.
 
 **[switchboard-agent](https://github.com/crockalet/switchboard-agent)** is a separate CLI you install
 yourself. It owns the config that names commands and launchd labels, and it is
@@ -42,6 +42,20 @@ config, and Switchboard just shows it.
 When both halves describe the same port, the companion's row wins, because it is
 the one that can act, and it inherits the portless URL.
 
+Every action answers on the notch: a confirmation is a HUD strip, a refusal
+grows into a card carrying what launchd actually said.
+
+## Logs
+
+Pick **Show log** on any companion row and the tail takes over the notch.
+
+Nothing needs configuring. A launchd job's log path comes from `StandardOutPath`
+in its own plist; a supervised command writes to one the agent gave it. Only a
+service that logs somewhere neither default finds needs `logPath` set.
+
+The tail polls while the surface is up and stops the moment it closes, so
+nothing reads a file for an audience that is not there.
+
 ## Surfaces
 
 | Surface | What it shows |
@@ -49,6 +63,11 @@ the one that can act, and it inherits the portless URL.
 | Shelf widget | Up to four services, status and port, controls when they exist |
 | Menu bar extra | The full list, with a submenu per service |
 | Settings pane | Companion status, port and refresh interval |
+| HUD | The result of a start, stop or restart |
+| Expanded surface | A live tail of one service's log |
+
+Paired, the widget keeps the status dot, the name and the open button, and drops
+the lifecycle controls the width cannot hold.
 
 ## Developing
 
@@ -65,11 +84,15 @@ Drop `.build/Switchboard.droplet` on
 [Droppy Playground](https://getdroppy.app/download/playground) to try it on the
 real notch.
 
-## Before submitting
+## A note on `droppykit validate`
 
-The scaffold's placeholder icon and creator avatar are still in place, and
-`creator` and `source` in `droplet.json` still say `Your name` and
-`github.com/you`. Replace all four.
+It warns that "makeExpanded carries a Button". That check greps a file for
+`makeExpanded` and for `Button` and warns when one file has both; it is aimed at
+a live activity's unmounted card. Switchboard does not provide a live activity
+at all. The strings co-occurred because `makeExpandedSurfaceView` — an *expanded
+surface* requirement, which Droppy does mount — sat in the same file as the log
+surface's Close button. Splitting the view into `LogSurfaceView.swift` silences
+it.
 
 ## Licence
 
