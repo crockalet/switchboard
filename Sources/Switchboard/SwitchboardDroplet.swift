@@ -7,8 +7,7 @@ import Combine
 import DroppyKit
 import SwiftUI
 
-/// The class Droppy's loader instantiates, named in the bundle's
-/// `NSPrincipalClass`. Keep it empty: it runs before the host is ready.
+/// The loader's principal class. Keep it empty: it runs before the host is ready.
 @objc(SwitchboardPrincipal)
 public final class SwitchboardPrincipal: NSObject, DropletPrincipal {
     public override init() { super.init() }
@@ -19,8 +18,7 @@ public final class SwitchboardPrincipal: NSObject, DropletPrincipal {
 /// Switchboard: the local dev services command center.
 @MainActor
 public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
-    /// Must equal `DroppyDropletID` in the bundle's Info.plist and `id` in
-    /// droplet.json. The loader refuses the bundle if the three disagree.
+    /// Must equal the bundle and manifest `id`; otherwise the loader refuses it.
     public nonisolated static let id: DropletID = "switchboard"
 
     enum PreferenceKey {
@@ -30,7 +28,6 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
 
     public let store = SwitchboardStore()
     public let logTail = LogTail(client: CompanionClient())
-    // Not private: the HUD extension presents through it.
     var host: DropletHost?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -44,13 +41,11 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
         store.companionPortChanged(to: port)
         logTail.clientChanged(to: CompanionClient(port: port))
 
-        // Re-read the menu bar extra whenever the list changes, so its symbol
-        // and title track what is actually running.
+        // Keep the menu bar symbol and title in step with the service list.
         store.$services
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // The store does the work; the droplet owns the presentation.
         store.announce = { [weak self] announcement in self?.announce(announcement) }
 
         store.start(log: host.log)
@@ -58,8 +53,6 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
     }
 
     public func deactivate() {
-        // Everything activate() started is torn down here. Swift cannot unload
-        // code, so anything left running keeps running until Droppy relaunches.
         store.stop()
         logTail.stop()
         store.announce = nil
@@ -98,8 +91,7 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
         NSWorkspace.shared.open(url)
     }
 
-    /// Opens the log takeover for one service. Only a companion row has a log:
-    /// a portless route tells you a port is busy, not where its output went.
+    /// Opens the log takeover; only a companion row knows where its log lives.
     func showLogs(for service: Service) {
         guard service.origin == .companion else { return }
         logTail.prepare(for: service)

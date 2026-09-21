@@ -1,11 +1,3 @@
-//
-//  SwitchboardMenuBar.swift
-//  Switchboard
-//
-//  The command center proper. The shelf widget is the glance; this is the list
-//  you actually work from.
-//
-
 import DroppyKit
 import SwiftUI
 
@@ -41,8 +33,7 @@ private struct SwitchboardMenu: View {
                     }
 
                     if service.actions.isEmpty {
-                        // A portless-only row. Say why it cannot be controlled
-                        // rather than showing dead buttons.
+                        // A portless-only row: show the omission, not dead buttons.
                         Text("Read only — not in the companion's config")
                     } else {
                         if service.status == .running {

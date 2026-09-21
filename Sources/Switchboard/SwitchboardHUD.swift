@@ -1,10 +1,4 @@
-//
-//  SwitchboardHUD.swift
-//  Switchboard
-//
-//  Action feedback. Without this, a Restart in the menu bar is silent until the
-//  next poll, and a refusal is only visible in the settings pane.
-//
+// Immediate feedback instead of waiting for the next service poll.
 
 import DroppyKit
 import SwiftUI
@@ -13,7 +7,7 @@ import SwiftUI
 public struct ActionAnnouncement: Sendable {
     public let symbol: String
     public let headline: String
-    /// The refusal reason, when there is one. Present means the action failed.
+    /// The refusal reason, when the action failed.
     public let failure: String?
 
     public var isFailure: Bool { failure != nil }
@@ -25,8 +19,7 @@ public struct ActionAnnouncement: Sendable {
     }
 }
 
-/// A marker with no requirements: the runtime gates on the `hud` manifest
-/// string, and the conformance is the statement of intent review reads.
+/// The runtime gates on the `hud` manifest string; the conformance declares it.
 extension SwitchboardDroplet: HUDPresenting {}
 
 extension SwitchboardDroplet {
@@ -34,16 +27,11 @@ extension SwitchboardDroplet {
     func announce(_ announcement: ActionAnnouncement) {
         guard let host else { return }
 
-        // A failure is worth reading; a confirmation is not worth dwelling on.
         let duration: TimeInterval? = announcement.isFailure ? 4.0 : 2.0
-        // `.high` is the band for things the user acted on directly, which is
-        // exactly what this is: they pressed the button a moment ago.
         let priority = DropletHUDPriority.high
         let label = announcement.failure.map { "\(announcement.headline). \($0)" } ?? announcement.headline
 
-        // Two shapes, not one shape with an empty half. A confirmation is a
-        // strip and never grows: passing an `expanded:` closure for it would
-        // give the host a card holding a title and a blank line.
+        // A confirmation is a strip; an empty expanded half would look broken.
         let request: DropletHUDRequest
         if let failure = announcement.failure {
             request = DropletHUDRequest(
@@ -78,16 +66,13 @@ extension SwitchboardDroplet {
             )
         }
 
-        // Refused when the capability is missing or a higher band owns the
-        // surface. Not worth surfacing to the user — the list still updates.
+        // Not user-facing: the action result is already reflected in the list.
         if !host.hud.present(request) {
             host.log.info("Switchboard: HUD refused for \(announcement.headline)")
         }
     }
 
-    /// Glyph at the far left, text at the far right, nothing in the middle: the
-    /// host hands a strip the full width, and on a notch the middle of that
-    /// width is the camera housing.
+    /// Keep the middle empty: on a notch it is the camera housing.
     @ViewBuilder
     static func strip(_ announcement: ActionAnnouncement) -> some View {
         HStack(spacing: 0) {

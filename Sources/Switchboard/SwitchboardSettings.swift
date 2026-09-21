@@ -66,14 +66,10 @@ private struct SwitchboardSettingsPane: View {
                     title: "Companion port",
                     value: "\(Int(companionPort))",
                     binding: $companionPort,
-                    // Narrow on purpose. The pill inside the row is
-                    // click-to-type for an exact number, and a slider spanning
-                    // all 64k ports is undraggable.
+                    // Narrow on purpose: the pill accepts an exact port number.
                     range: 1024...9999,
                     step: 1,
-                    // Deferred to the end of the drag: every write rebuilds the
-                    // client and refetches, which is not something to do on
-                    // each scroll frame.
+                    // Write once at drag end, not on every rebuild/refetch frame.
                     onEditingChanged: { editing in
                         if !editing { droplet.companionPort = Int(companionPort) }
                     }
