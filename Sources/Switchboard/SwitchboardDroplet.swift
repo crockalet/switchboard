@@ -22,7 +22,6 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
     public nonisolated static let id: DropletID = "switchboard"
 
     enum PreferenceKey {
-        static let companionPort = "companionPort"
         static let refreshInterval = "refreshInterval"
     }
 
@@ -34,12 +33,11 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
     public func activate(host: DropletHost) throws {
         self.host = host
 
-        let port = host.preferences.value(forKey: PreferenceKey.companionPort, default: CompanionClient.defaultPort)
         let interval = host.preferences.value(forKey: PreferenceKey.refreshInterval, default: 5.0)
 
         store.refreshInterval = interval
-        store.companionPortChanged(to: port)
-        logTail.clientChanged(to: CompanionClient(port: port))
+        store.companionPortChanged(to: companionPort)
+        logTail.clientChanged(to: CompanionClient(port: companionPort))
 
         // Keep the menu bar symbol and title in step with the service list.
         store.$services
@@ -66,14 +64,9 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
 
     // MARK: - Preferences
 
-    var companionPort: Int {
-        get { host?.preferences.value(forKey: PreferenceKey.companionPort, default: CompanionClient.defaultPort) ?? CompanionClient.defaultPort }
-        set {
-            host?.preferences.setValue(newValue, forKey: PreferenceKey.companionPort)
-            store.companionPortChanged(to: newValue)
-            logTail.clientChanged(to: CompanionClient(port: newValue))
-        }
-    }
+    /// Read from the companion's config each time, so editing that file and
+    /// restarting the agent is all it takes.
+    var companionPort: Int { CompanionLocator.port() }
 
     var refreshInterval: Double {
         get { host?.preferences.value(forKey: PreferenceKey.refreshInterval, default: 5.0) ?? 5.0 }
