@@ -13,7 +13,6 @@ extension SwitchboardDroplet: SettingsPaneProviding {
 
     public var settingsSearchEntries: [SettingsSearchEntry] {
         [
-            SettingsSearchEntry(title: "Companion port", keywords: ["switchboard", "companion", "port", "agent"]),
             SettingsSearchEntry(title: "Refresh interval", keywords: ["switchboard", "refresh", "poll", "interval"])
         ]
     }
@@ -23,7 +22,6 @@ private struct SwitchboardSettingsPane: View {
     @ObservedObject var droplet: SwitchboardDroplet
     @ObservedObject var store: SwitchboardStore
 
-    @State private var companionPort: Double = Double(CompanionClient.defaultPort)
     @State private var refreshInterval: Double = 5
 
     var body: some View {
@@ -53,7 +51,11 @@ private struct SwitchboardSettingsPane: View {
                     icon: "terminal",
                     infoTip: "Without it Switchboard is read only: it can show services but not start or stop them."
                 ) {
-                    DropletValuePill(text: store.companionReachable ? "Connected" : "Not running")
+                    DropletValuePill(
+                        text: store.companionReachable
+                            ? "Connected on \(droplet.companionPort)"
+                            : "Not running"
+                    )
                 }
             }
 
@@ -62,21 +64,6 @@ private struct SwitchboardSettingsPane: View {
             }
 
             DropletSettingsCard {
-                DropletSliderRow(
-                    title: "Companion port",
-                    value: "\(Int(companionPort))",
-                    binding: $companionPort,
-                    // Narrow on purpose: the pill accepts an exact port number.
-                    range: 1024...9999,
-                    step: 1,
-                    // Write once at drag end, not on every rebuild/refetch frame.
-                    onEditingChanged: { editing in
-                        if !editing { droplet.companionPort = Int(companionPort) }
-                    }
-                )
-
-                DropletSettingsDivider()
-
                 DropletSliderRow(
                     title: "Refresh interval",
                     value: "\(Int(refreshInterval))s",
@@ -93,9 +80,6 @@ private struct SwitchboardSettingsPane: View {
                 SettingsInfoTip(error)
             }
         }
-        .onAppear {
-            companionPort = Double(droplet.companionPort)
-            refreshInterval = droplet.refreshInterval
-        }
+        .onAppear { refreshInterval = droplet.refreshInterval }
     }
 }
