@@ -1,0 +1,44 @@
+{
+  "id": "switchboard",
+  "name": "Switchboard",
+  "version": "1.0.0",
+  "summary": "Your local dev services, on the shelf",
+  "description": "Switchboard is a command center for the web services running on your Mac.\n\nIt reads portless's own route table, so the moment you install it you can see every named .localhost service, the port behind it, and whether it is actually up. That much needs nothing else installed.\n\nInstall the companion CLI and the same list gains start, stop and restart, driven by launchd agents and commands you configure yourself. Services that need their own flags are described once in the companion's config and Switchboard just shows them.",
+  "category": "productivity",
+  "kit": {
+    "abi": 1,
+    "minAPI": "1.6.0"
+  },
+  "minAppVersion": "15.3.0",
+  "capabilities": [
+    "network-client",
+    "menu-bar",
+    "hud",
+    "expanded-surface"
+  ],
+  "surfaces": [
+    "shelf-widget",
+    "menu-bar-extra",
+    "settings-pane",
+    "hud",
+    "expanded-surface"
+  ],
+  "icon": "Switchboard.icon",
+  "creator": {
+    "name": "crockalet",
+    "kind": "community",
+    "url": "https://github.com/crockalet",
+    "avatar": "Creator.png"
+  },
+  "source": {
+    "repository": "https://github.com/crockalet/switchboard",
+    "license": "MIT"
+  },
+  "keywords": [
+    "services",
+    "portless",
+    "localhost",
+    "launchd",
+    "dev"
+  ]
+}

@@ -1,0 +1,12 @@
+.build/
+.swiftpm/
+.DS_Store
+
+# Harness renders. Regenerate with:
+#   droppykit run -- --shots ./shots --report ./shots/report.json
+shots*/
+
+# Per-machine agent wiring: both carry absolute paths to this Mac's SDK
+# checkout, so they are useless to anyone else. Regenerate with `droppykit agent`.
+.mcp.json
+.cursor/
