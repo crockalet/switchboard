@@ -28,10 +28,11 @@
     "name": "crockalet",
     "kind": "community",
     "url": "https://github.com/crockalet",
-    "avatar": "Creator.png"
+    "avatar": "Creator.png",
+    "gitlab": "crockalet"
   },
   "source": {
-    "repository": "https://github.com/crockalet/switchboard",
+    "repository": "https://gitlab.com/droppyformac1/droplets/-/tree/main/droplets/switchboard",
     "license": "MIT"
   },
   "keywords": [
