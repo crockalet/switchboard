@@ -10,26 +10,31 @@ extension SwitchboardDroplet: ShelfWidgetProviding {
     public var widgetDescriptors: [ShelfWidgetDescriptor] {
         [
             ShelfWidgetDescriptor(
-                id: "switchboard",
+                id: Self.widgetID,
                 title: "Switchboard",
                 systemImage: "dot.radiowaves.left.and.right",
                 layoutTraits: ShelfWidgetLayoutTraits(
                     preferredSoloWidth: 420,
                     preferredPairedWidth: 210,
-                    // The host re-reads descriptors on state changes, so track
-                    // the list instead of reserving space for a fixed card.
-                    contentHeight: .fixed(Self.cardHeight(rows: store.services.count))
+                    // Follows the list; activate(host:) invalidates the host's
+                    // cached layout whenever this number changes.
+                    contentHeight: .fixed(widgetHeight)
                 )
             )
         ]
     }
 
-    /// Header plus up to four 26pt rows, with room for the empty state.
+    static let widgetID: ShelfWidgetID = "switchboard"
+
+    /// Header plus up to four 26pt rows, with room for the empty state. The
+    /// height is the whole rectangle, so it budgets the 16pt `contentInsets`
+    /// takes under the 18pt card corner; a solo island card leaves it unused.
     static func cardHeight(rows: Int) -> CGFloat {
+        let insets = 2 * DroppySpacing.sm
         let header: CGFloat = 20 + DroppySpacing.sm
-        guard rows > 0 else { return header + 40 }
+        guard rows > 0 else { return insets + header + 40 }
         let visible = CGFloat(min(rows, 4))
-        return header + visible * 26 + (visible - 1) * DroppySpacing.xsm
+        return insets + header + visible * 26 + (visible - 1) * DroppySpacing.xsm
     }
 
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {

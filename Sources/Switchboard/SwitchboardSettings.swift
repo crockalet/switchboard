@@ -18,6 +18,9 @@ extension SwitchboardDroplet: SettingsPaneProviding {
     }
 }
 
+/// Rooted in `DropletSettingsPane`, so Droppy mounts the sections in its own
+/// grouped Form: the cards are the Form's sections and the rows its own rows,
+/// with no divider placed by hand.
 private struct SwitchboardSettingsPane: View {
     @ObservedObject var droplet: SwitchboardDroplet
     @ObservedObject var store: SwitchboardStore
@@ -25,42 +28,49 @@ private struct SwitchboardSettingsPane: View {
     @State private var refreshInterval: Double = 5
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DroppySpacing.md) {
-            DropletSettingsCard {
-                DropletControlRow(
-                    title: "Services",
-                    icon: "dot.radiowaves.left.and.right",
-                    infoTip: "Read from portless's own route table. No companion needed."
-                ) {
-                    DropletValuePill(text: "\(store.runningCount) of \(store.services.count) running")
+        DropletSettingsPane {
+            DropletSettingsSection {
+                settingsSectionHeader("Status")
+            } content: {
+                DropletSettingsCard {
+                    DropletControlRow(
+                        title: "Services",
+                        icon: "dot.radiowaves.left.and.right",
+                        infoTip: "Read from portless's own route table. No companion needed."
+                    ) {
+                        DropletValuePill(text: "\(store.runningCount) of \(store.services.count) running")
+                    }
+
+                    DropletControlRow(title: "portless proxy", icon: "network") {
+                        DropletValuePill(text: store.proxyRunning ? "Running" : "Not running")
+                    }
+
+                    DropletControlRow(
+                        title: "Companion CLI",
+                        icon: "terminal",
+                        infoTip: store.companionReachable
+                            ? "Start, stop, restart and logs go through switchboard-agent."
+                            : "Install switchboard-agent to start, stop and restart services. Until then the list is read only."
+                    ) {
+                        DropletValuePill(
+                            text: store.companionReachable
+                                ? "Connected on \(droplet.companionPort)"
+                                : "Not running"
+                        )
+                    }
+
+                    if let error = store.lastError {
+                        DropletStackedRow(title: "Last error", icon: "exclamationmark.triangle") {
+                            Text(error)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    DropletControlRow(title: "Check now") {
+                        Button("Refresh") { droplet.refresh() }
+                    }
                 }
-
-                DropletSettingsDivider()
-
-                DropletControlRow(
-                    title: "portless proxy",
-                    icon: "network"
-                ) {
-                    DropletValuePill(text: store.proxyRunning ? "Running" : "Not running")
-                }
-
-                DropletSettingsDivider()
-
-                DropletControlRow(
-                    title: "Companion CLI",
-                    icon: "terminal",
-                    infoTip: "Without it Switchboard is read only: it can show services but not start or stop them."
-                ) {
-                    DropletValuePill(
-                        text: store.companionReachable
-                            ? "Connected on \(droplet.companionPort)"
-                            : "Not running"
-                    )
-                }
-            }
-
-            if !store.companionReachable {
-                SettingsInfoTip("Install switchboard-agent to start, stop and restart services. Until then the list is read only.")
             }
 
             DropletSettingsCard {
@@ -69,17 +79,15 @@ private struct SwitchboardSettingsPane: View {
                     value: "\(Int(refreshInterval))s",
                     binding: $refreshInterval,
                     range: 1...60,
-                    step: 1,
-                    onEditingChanged: { editing in
-                        if !editing { droplet.refreshInterval = refreshInterval }
-                    }
+                    step: 1
                 )
-            }
-
-            if let error = store.lastError {
-                SettingsInfoTip(error)
             }
         }
         .onAppear { refreshInterval = droplet.refreshInterval }
+        // The pill takes typed values and arrow keys too, which never end a
+        // drag, so save on every change rather than on release.
+        .onChange(of: refreshInterval) { _, value in
+            if value != droplet.refreshInterval { droplet.refreshInterval = value }
+        }
     }
 }

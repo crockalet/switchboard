@@ -12,7 +12,7 @@ let package = Package(
         .library(name: "Switchboard", type: .dynamic, targets: ["Switchboard"])
     ],
     dependencies: [
-        .package(url: "https://gitlab.com/droppyformac1/droppykit.git", from: "1.6.0")
+        .package(url: "https://gitlab.com/droppyformac1/droppykit.git", from: "1.20.0")
     ],
     targets: [
         .target(

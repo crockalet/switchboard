@@ -24,6 +24,12 @@ public final class SwitchboardStore: ObservableObject {
     private let portless: PortlessSource
     private var companion: CompanionClient
     private var refreshTask: Task<Void, Never>?
+    private var actionTasks: [UUID: Task<Void, Never>] = [:]
+    /// Bumped by every refresh and by `stop()`: a result is published only if
+    /// nothing newer started, so a slow probe never overwrites a fresh one and
+    /// nothing lands after the droplet is disabled.
+    private var generation = 0
+    private var isRunning = false
     private weak var log: (any DropletLogService)?
 
     public init(
@@ -44,6 +50,7 @@ public final class SwitchboardStore: ObservableObject {
     public func start(log: (any DropletLogService)? = nil) {
         self.log = log
         stop()
+        isRunning = true
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
@@ -53,15 +60,31 @@ public final class SwitchboardStore: ObservableObject {
         }
     }
 
-    /// Cancels the poller. Safe to call twice.
+    /// Cancels the poller and every action in flight. Safe to call twice.
     public func stop() {
+        isRunning = false
+        generation += 1
         refreshTask?.cancel()
         refreshTask = nil
+        actionTasks.values.forEach { $0.cancel() }
+        actionTasks.removeAll()
+    }
+
+    /// Forgets what the last refresh saw, for a clean start after re-enabling.
+    public func reset() {
+        services = []
+        companionReachable = false
+        proxyRunning = false
+        lastError = nil
     }
 
     // MARK: - Refresh
 
     public func refresh() async {
+        guard isRunning else { return }
+        generation += 1
+        let token = generation
+
         // Keep the list populated without the companion; probes go off-main.
         let source = portless
         let readOnly = await Task.detached { source.services() }.value
@@ -69,20 +92,24 @@ public final class SwitchboardStore: ObservableObject {
 
         var merged = readOnly
         var reachable = false
+        var error: String?
 
         do {
             let controllable = try await companion.services()
             reachable = true
             merged = Self.merge(portless: readOnly, companion: controllable)
-            lastError = nil
         } catch CompanionError.notInstalled {
             // Not an error state: read-only is the designed fallback.
             reachable = false
-        } catch {
+        } catch let failure {
             reachable = false
-            lastError = "\(error)"
+            error = "The companion answered with something Switchboard cannot read: \(failure)"
         }
 
+        // Disabled, or overtaken by a newer refresh, while this one waited.
+        guard token == generation, isRunning else { return }
+
+        lastError = error
         services = merged.sorted { lhs, rhs in
             lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
@@ -121,19 +148,24 @@ public final class SwitchboardStore: ObservableObject {
     // MARK: - Actions
 
     public func perform(_ action: String, on service: Service) {
-        guard service.origin == .companion else { return }
+        guard isRunning, service.origin == .companion else { return }
         let id = String(service.id.dropFirst("companion:".count))
+        let key = UUID()
+        let companion = self.companion
 
-        Task { [weak self] in
-            guard let self else { return }
+        actionTasks[key] = Task { [weak self] in
+            defer { self?.actionTasks[key] = nil }
             do {
-                try await self.companion.perform(action, on: id)
+                try await companion.perform(action, on: id)
+                // Disabled while the companion worked: say nothing.
+                guard let self, !Task.isCancelled else { return }
                 await self.refresh()
                 self.announce?(ActionAnnouncement(
                     symbol: Self.symbol(for: action),
                     headline: "\(service.name) \(Self.pastTense(of: action))"
                 ))
             } catch CompanionError.refused(let message) {
+                guard let self, !Task.isCancelled else { return }
                 self.lastError = message
                 self.log?.error("Switchboard: \(action) on \(id) refused — \(message)")
                 self.announce?(ActionAnnouncement(
@@ -142,6 +174,7 @@ public final class SwitchboardStore: ObservableObject {
                     failure: message
                 ))
             } catch {
+                guard let self, !Task.isCancelled else { return }
                 self.lastError = "The companion is not reachable."
                 self.log?.error("Switchboard: \(action) on \(id) failed — \(error)")
                 self.announce?(ActionAnnouncement(
