@@ -150,7 +150,17 @@ private struct ServiceRow: View {
 
             Spacer(minLength: 4)
 
-            if !isPaired, let port = service.port {
+            // Tooltips do not show in the shelf's panel, so the reason for a
+            // failed action takes the port's place until it clears.
+            if !isPaired, let failure {
+                Text(failure)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+                    .transition(DroppyTransition.element)
+            } else if !isPaired, let port = service.port {
                 Text(String(port))
                     .font(.system(size: 11))
                     .monospacedDigit()

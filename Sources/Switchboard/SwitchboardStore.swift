@@ -210,7 +210,7 @@ public final class SwitchboardStore: ObservableObject {
         failures[serviceID] = message
         failureTasks[serviceID]?.cancel()
         failureTasks[serviceID] = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(6))
             guard !Task.isCancelled else { return }
             self?.clearFailure(serviceID)
         }

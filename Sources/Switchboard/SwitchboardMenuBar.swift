@@ -86,7 +86,14 @@ private struct SwitchboardMenu: View {
 
             Spacer(minLength: DroppySpacing.md)
 
-            if let port = service.port {
+            if let failure = store.failures[service.id] {
+                Text(failure)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+            } else if let port = service.port {
                 Text(String(port))
                     .font(.system(size: 11))
                     .monospacedDigit()
