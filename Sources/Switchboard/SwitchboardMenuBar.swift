@@ -16,29 +16,45 @@ extension SwitchboardDroplet: MenuBarExtraProviding {
 /// The host draws this in a panel under the status item, not in an NSMenu, so
 /// it is a view of rows with their own buttons: a SwiftUI `Menu` here renders
 /// as a pop-up button that never opens.
+///
+/// The panel is measured once, when it is built, which can be before the first
+/// refresh has filled the list. So its height never depends on the data: the
+/// list reserves five rows and scrolls past them, and the status line is
+/// always there.
 private struct SwitchboardMenu: View {
     @ObservedObject var droplet: SwitchboardDroplet
     @ObservedObject var store: SwitchboardStore
 
+    private static let visibleRows = 5
+    private static let rowHeight: CGFloat = 24
+    private static let listHeight = CGFloat(visibleRows) * rowHeight
+        + CGFloat(visibleRows - 1) * DroppySpacing.xs
+
     var body: some View {
         VStack(alignment: .leading, spacing: DroppySpacing.sm) {
-            if store.services.isEmpty {
-                Text("No services")
-                    .font(.system(size: 13, weight: .medium))
-            } else {
-                VStack(spacing: DroppySpacing.xs) {
-                    ForEach(store.services) { service in
-                        row(service)
+            Group {
+                if store.services.isEmpty {
+                    Text("No services")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(.vertical) {
+                        VStack(spacing: DroppySpacing.xs) {
+                            ForEach(store.services) { service in
+                                row(service)
+                            }
+                        }
+                        .droppyFlatGlassControls()
                     }
+                    .scrollIndicators(.automatic)
                 }
-                .droppyFlatGlassControls()
             }
+            .frame(height: Self.listHeight)
 
-            if let note {
-                Text(note)
-                    .font(.system(size: 11))
-                    .foregroundStyle(AdaptiveColors.secondaryTextAuto)
-            }
+            Text(status)
+                .font(.system(size: 11))
+                .foregroundStyle(AdaptiveColors.secondaryTextAuto)
+                .lineLimit(1)
 
             Divider()
 
@@ -51,8 +67,11 @@ private struct SwitchboardMenu: View {
             }
         }
         .foregroundStyle(AdaptiveColors.primaryTextAuto)
-        .padding(.vertical, DroppySpacing.xs)
-        .frame(minWidth: 280, alignment: .leading)
+        // The host's panel pays no inset of its own: without this the dots
+        // and the trailing buttons sit on its rounded edge.
+        .padding(.horizontal, DroppySpacing.md)
+        .padding(.vertical, DroppySpacing.sm)
+        .frame(minWidth: 300, alignment: .leading)
     }
 
     private func row(_ service: Service) -> some View {
@@ -77,19 +96,20 @@ private struct SwitchboardMenu: View {
             ServiceControls(
                 service: service,
                 pendingAction: store.pending[service.id],
+                failure: store.failures[service.id],
                 onOpen: { droplet.open($0) },
                 onShowLog: { droplet.showLogs(for: service) },
                 onAction: { store.perform($0, on: service) }
             )
         }
-        .frame(height: 24)
+        .frame(height: Self.rowHeight)
         // A portless-only row has no lifecycle buttons; say why.
         .help(service.actions.isEmpty ? "Read only: not in the companion's config" : "")
     }
 
-    private var note: String? {
+    private var status: String {
         if !store.companionReachable { return "Companion not running: read only" }
         if !store.proxyRunning { return "The portless proxy is not running" }
-        return nil
+        return "\(store.runningCount) of \(store.services.count) running"
     }
 }

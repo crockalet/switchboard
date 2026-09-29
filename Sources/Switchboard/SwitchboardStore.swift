@@ -17,6 +17,9 @@ public final class SwitchboardStore: ObservableObject {
     /// The action in flight per service id, until the service reaches the
     /// state it asked for; the rows show progress instead of a stale control.
     @Published public private(set) var pending: [String: String] = [:]
+    /// Why the last action on a service failed, for a few seconds. A HUD is
+    /// not drawn over the open shelf, so the row itself has to say so.
+    @Published public private(set) var failures: [String: String] = [:]
 
     /// Set by the droplet, which owns how an announcement is shown.
     public var announce: ((ActionAnnouncement) -> Void)?
@@ -28,6 +31,7 @@ public final class SwitchboardStore: ObservableObject {
     private var companion: CompanionClient
     private var refreshTask: Task<Void, Never>?
     private var actionTasks: [UUID: Task<Void, Never>] = [:]
+    private var failureTasks: [String: Task<Void, Never>] = [:]
     /// Bumped by every refresh and by `stop()`: a result is published only if
     /// nothing newer started, so a slow probe never overwrites a fresh one and
     /// nothing lands after the droplet is disabled.
@@ -72,6 +76,9 @@ public final class SwitchboardStore: ObservableObject {
         actionTasks.values.forEach { $0.cancel() }
         actionTasks.removeAll()
         pending.removeAll()
+        failureTasks.values.forEach { $0.cancel() }
+        failureTasks.removeAll()
+        failures.removeAll()
     }
 
     /// Forgets what the last refresh saw, for a clean start after re-enabling.
@@ -154,6 +161,7 @@ public final class SwitchboardStore: ObservableObject {
     public func perform(_ action: String, on service: Service) {
         // A second press while one is in flight would start or restart twice.
         guard isRunning, service.origin == .companion, pending[service.id] == nil else { return }
+        clearFailure(service.id)
         let id = String(service.id.dropFirst("companion:".count))
         let key = UUID()
         let companion = self.companion
@@ -176,6 +184,7 @@ public final class SwitchboardStore: ObservableObject {
                 ))
             } catch CompanionError.refused(let message) {
                 guard let self, !Task.isCancelled else { return }
+                self.showFailure(message, on: service.id)
                 self.lastError = message
                 self.log?.error("Switchboard: \(action) on \(id) refused — \(message)")
                 self.announce?(ActionAnnouncement(
@@ -185,6 +194,7 @@ public final class SwitchboardStore: ObservableObject {
                 ))
             } catch {
                 guard let self, !Task.isCancelled else { return }
+                self.showFailure("The companion is not reachable.", on: service.id)
                 self.lastError = "The companion is not reachable."
                 self.log?.error("Switchboard: \(action) on \(id) failed — \(error)")
                 self.announce?(ActionAnnouncement(
@@ -194,6 +204,22 @@ public final class SwitchboardStore: ObservableObject {
                 ))
             }
         }
+    }
+
+    private func showFailure(_ message: String, on serviceID: String) {
+        failures[serviceID] = message
+        failureTasks[serviceID]?.cancel()
+        failureTasks[serviceID] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.clearFailure(serviceID)
+        }
+    }
+
+    private func clearFailure(_ serviceID: String) {
+        failureTasks[serviceID]?.cancel()
+        failureTasks[serviceID] = nil
+        failures[serviceID] = nil
     }
 
     /// Refreshes until the service shows the state `action` leads to, for up

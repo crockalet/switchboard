@@ -68,6 +68,7 @@ private struct SwitchboardWidget: View {
                         ServiceRow(
                             service: service,
                             pendingAction: store.pending[service.id],
+                            failure: store.failures[service.id],
                             isPaired: context.isPaired,
                             onOpen: { droplet.open($0) },
                             onAction: { store.perform($0, on: service) }
@@ -129,6 +130,7 @@ private struct SwitchboardWidget: View {
 private struct ServiceRow: View {
     let service: Service
     let pendingAction: String?
+    let failure: String?
     let isPaired: Bool
     let onOpen: (URL) -> Void
     let onAction: (String) -> Void
@@ -159,6 +161,7 @@ private struct ServiceRow: View {
             ServiceControls(
                 service: service,
                 pendingAction: pendingAction,
+                failure: failure,
                 showsLifecycle: !isPaired,
                 onOpen: onOpen,
                 onAction: onAction
@@ -174,6 +177,7 @@ private struct ServiceRow: View {
 struct ServiceControls: View {
     let service: Service
     let pendingAction: String?
+    var failure: String?
     var showsLifecycle = true
     let onOpen: (URL) -> Void
     var onShowLog: (() -> Void)?
@@ -224,6 +228,14 @@ struct ServiceControls: View {
                 .frame(width: 20, height: 20)
                 .help(SwitchboardStore.progressive(of: pendingAction))
                 .accessibilityLabel(SwitchboardStore.progressive(of: pendingAction))
+                .transition(DroppyTransition.element)
+        } else if let failure {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.yellow)
+                .frame(width: 20, height: 20)
+                .help(failure)
+                .accessibilityLabel("\(service.name): \(failure)")
                 .transition(DroppyTransition.element)
         } else {
             lifecycleButtons
