@@ -50,8 +50,10 @@ private struct SwitchboardWidget: View {
     @ObservedObject var store: SwitchboardStore
     let context: ShelfWidgetContext
 
+    /// Four in both compositions: the declared height is one number for solo
+    /// and grouped, so a shorter grouped list would leave an empty band.
     private var visibleServices: [Service] {
-        Array(store.services.prefix(context.isPaired ? 3 : 4))
+        Array(store.services.prefix(4))
     }
 
     var body: some View {
