@@ -62,12 +62,15 @@ public final class LogTail: ObservableObject {
     private func pull(_ id: String) async {
         do {
             let result = try await client.logs(for: id, lines: 300)
+            // Closed or disabled while the request was out.
+            guard !Task.isCancelled else { return }
             path = result.path
             lines = result.lines
             failure = result.path == nil
                 ? "No log path. A launchd job needs StandardOutPath in its plist."
                 : nil
         } catch {
+            guard !Task.isCancelled else { return }
             failure = "The companion is not reachable."
         }
         isLoading = false

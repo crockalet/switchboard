@@ -42,12 +42,15 @@ config, and Switchboard just shows it.
 When both halves describe the same port, the companion's row wins, because it is
 the one that can act, and it inherits the portless URL.
 
-Every action answers on the notch: a confirmation is a HUD strip, a refusal
+While an action settles, its row shows progress instead of a control that is
+already stale. When it fails, the row says why in yellow for a few seconds. With
+the shelf closed the notch answers too: a confirmation is a HUD strip, a refusal
 grows into a card carrying what launchd actually said.
 
 ## Logs
 
-Pick **Show log** on any companion row and the tail takes over the notch.
+Press the log button on any companion row in the menu bar panel and the tail
+takes over the notch.
 
 Nothing needs configuring. A launchd job's log path comes from `StandardOutPath`
 in its own plist; a supervised command writes to one the agent gave it. Only a
@@ -61,8 +64,8 @@ nothing reads a file for an audience that is not there.
 | Surface | What it shows |
 | --- | --- |
 | Shelf widget | Up to four services, status and port, controls when they exist |
-| Menu bar extra | The full list, with a submenu per service |
-| Settings pane | Companion status, port and refresh interval |
+| Menu bar extra | The full list, each row with its own open, log and lifecycle buttons |
+| Settings pane | Companion status, port and refresh interval, in Droppy's native form |
 | HUD | The result of a start, stop or restart |
 | Expanded surface | A live tail of one service's log |
 

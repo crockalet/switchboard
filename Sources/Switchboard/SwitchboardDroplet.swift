@@ -28,6 +28,9 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
     public let store = SwitchboardStore()
     public let logTail = LogTail(client: CompanionClient())
     var host: DropletHost?
+    /// The widget's declared height, cached so the host re-reads the new value
+    /// when it is told the layout changed.
+    private(set) var widgetHeight = SwitchboardDroplet.cardHeight(rows: 0)
     private var cancellables: Set<AnyCancellable> = []
 
     public func activate(host: DropletHost) throws {
@@ -44,17 +47,34 @@ public final class SwitchboardDroplet: NSObject, ObservableObject, Droplet {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
+        // `$services` fires before the store changes, so the height is taken
+        // from the new value rather than re-read from the store.
+        store.$services
+            .map { Self.cardHeight(rows: $0.count) }
+            .removeDuplicates()
+            .sink { [weak self] height in
+                guard let self, height != self.widgetHeight else { return }
+                self.widgetHeight = height
+                self.host?.shelf.invalidateLayout(for: Self.widgetID)
+            }
+            .store(in: &cancellables)
+
         store.announce = { [weak self] announcement in self?.announce(announcement) }
 
         store.start(log: host.log)
         host.log.info("Switchboard activated")
     }
 
+    /// Safe after a partial activation, and while a refresh is in flight: the
+    /// store drops any result that lands after `stop()`.
     public func deactivate() {
         store.stop()
         logTail.stop()
         store.announce = nil
         cancellables.removeAll()
+        // Re-enabling starts from the empty list, not a stale one.
+        store.reset()
+        widgetHeight = Self.cardHeight(rows: 0)
         host = nil
     }
 

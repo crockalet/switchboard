@@ -10,26 +10,31 @@ extension SwitchboardDroplet: ShelfWidgetProviding {
     public var widgetDescriptors: [ShelfWidgetDescriptor] {
         [
             ShelfWidgetDescriptor(
-                id: "switchboard",
+                id: Self.widgetID,
                 title: "Switchboard",
                 systemImage: "dot.radiowaves.left.and.right",
                 layoutTraits: ShelfWidgetLayoutTraits(
                     preferredSoloWidth: 420,
                     preferredPairedWidth: 210,
-                    // The host re-reads descriptors on state changes, so track
-                    // the list instead of reserving space for a fixed card.
-                    contentHeight: .fixed(Self.cardHeight(rows: store.services.count))
+                    // Follows the list; activate(host:) invalidates the host's
+                    // cached layout whenever this number changes.
+                    contentHeight: .fixed(widgetHeight)
                 )
             )
         ]
     }
 
-    /// Header plus up to four 26pt rows, with room for the empty state.
+    static let widgetID: ShelfWidgetID = "switchboard"
+
+    /// Header plus up to four 26pt rows, with room for the empty state. The
+    /// height is the whole rectangle, so it budgets the 16pt `contentInsets`
+    /// takes under the 18pt card corner; a solo island card leaves it unused.
     static func cardHeight(rows: Int) -> CGFloat {
+        let insets = 2 * DroppySpacing.sm
         let header: CGFloat = 20 + DroppySpacing.sm
-        guard rows > 0 else { return header + 40 }
+        guard rows > 0 else { return insets + header + 40 }
         let visible = CGFloat(min(rows, 4))
-        return header + visible * 26 + (visible - 1) * DroppySpacing.xsm
+        return insets + header + visible * 26 + (visible - 1) * DroppySpacing.xsm
     }
 
     public func makeWidgetView(_ id: ShelfWidgetID, context: ShelfWidgetContext) -> AnyView {
@@ -45,8 +50,10 @@ private struct SwitchboardWidget: View {
     @ObservedObject var store: SwitchboardStore
     let context: ShelfWidgetContext
 
+    /// Four in both compositions: the declared height is one number for solo
+    /// and grouped, so a shorter grouped list would leave an empty band.
     private var visibleServices: [Service] {
-        Array(store.services.prefix(context.isPaired ? 3 : 4))
+        Array(store.services.prefix(4))
     }
 
     var body: some View {
@@ -60,6 +67,8 @@ private struct SwitchboardWidget: View {
                     ForEach(visibleServices) { service in
                         ServiceRow(
                             service: service,
+                            pendingAction: store.pending[service.id],
+                            failure: store.failures[service.id],
                             isPaired: context.isPaired,
                             onOpen: { droplet.open($0) },
                             onAction: { store.perform($0, on: service) }
@@ -120,6 +129,8 @@ private struct SwitchboardWidget: View {
 /// actually act on them.
 private struct ServiceRow: View {
     let service: Service
+    let pendingAction: String?
+    let failure: String?
     let isPaired: Bool
     let onOpen: (URL) -> Void
     let onAction: (String) -> Void
@@ -139,7 +150,17 @@ private struct ServiceRow: View {
 
             Spacer(minLength: 4)
 
-            if !isPaired, let port = service.port {
+            // Tooltips do not show in the shelf's panel, so the reason for a
+            // failed action takes the port's place until it clears.
+            if !isPaired, let failure {
+                Text(failure)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.yellow)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(-1)
+                    .transition(DroppyTransition.element)
+            } else if !isPaired, let port = service.port {
                 Text(String(port))
                     .font(.system(size: 11))
                     .monospacedDigit()
@@ -147,13 +168,48 @@ private struct ServiceRow: View {
             }
 
             // Paired drops lifecycle controls, but opening stays useful.
-            if isPaired {
-                openButton
-            } else {
-                controls
-            }
+            ServiceControls(
+                service: service,
+                pendingAction: pendingAction,
+                failure: failure,
+                showsLifecycle: !isPaired,
+                onOpen: onOpen,
+                onAction: onAction
+            )
         }
         .frame(height: 26)
+    }
+}
+
+/// A service's buttons: open, optionally its log, then start, stop and
+/// restart, or progress while one of those settles. Shared by the shelf row
+/// and the menu bar panel so the two never disagree.
+struct ServiceControls: View {
+    let service: Service
+    let pendingAction: String?
+    var failure: String?
+    var showsLifecycle = true
+    let onOpen: (URL) -> Void
+    var onShowLog: (() -> Void)?
+    let onAction: (String) -> Void
+
+    var body: some View {
+        openButton
+
+        if let onShowLog, service.origin == .companion {
+            Button {
+                onShowLog()
+            } label: {
+                Image(systemName: "text.alignleft")
+            }
+            .buttonStyle(DroppyCircleButtonStyle(size: 20))
+            .help("Show the log of \(service.name)")
+            .accessibilityLabel("Show the log of \(service.name)")
+        }
+
+        if showsLifecycle {
+            controls
+        }
     }
 
     @ViewBuilder
@@ -172,8 +228,33 @@ private struct ServiceRow: View {
 
     @ViewBuilder
     private var controls: some View {
-        openButton
+        // Until the service reaches the state the action asked for, its
+        // status is stale: a restart passes through stopped, which would
+        // offer Start mid-restart.
+        if let pendingAction {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.6)
+                .frame(width: 20, height: 20)
+                .help(SwitchboardStore.progressive(of: pendingAction))
+                .accessibilityLabel(SwitchboardStore.progressive(of: pendingAction))
+                .transition(DroppyTransition.element)
+        } else if let failure {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.yellow)
+                .frame(width: 20, height: 20)
+                .help(failure)
+                .accessibilityLabel("\(service.name): \(failure)")
+                .transition(DroppyTransition.element)
+        } else {
+            lifecycleButtons
+                .transition(DroppyTransition.element)
+        }
+    }
 
+    @ViewBuilder
+    private var lifecycleButtons: some View {
         // Absent for a portless-only row: only the companion can restart it.
         if service.actions.contains(.restart), service.status == .running {
             Button {

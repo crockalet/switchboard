@@ -66,10 +66,17 @@ extension SwitchboardDroplet {
             )
         }
 
-        // Not user-facing: the action result is already reflected in the list.
-        if !host.hud.present(request) {
-            host.log.info("Switchboard: HUD refused for \(announcement.headline)")
-        }
+        if host.hud.present(request) { return }
+        // The card can be refused where a strip is not; the headline alone
+        // still says what failed, and the row carries the reason.
+        if announcement.isFailure, host.hud.present(DropletHUDRequest(
+            id: "switchboard.action",
+            duration: duration,
+            priority: priority,
+            accessibilityLabel: label,
+            content: { Self.strip(announcement) }
+        )) { return }
+        host.log.info("Switchboard: HUD refused for \(announcement.headline)")
     }
 
     /// Keep the middle empty: on a notch it is the camera housing.
