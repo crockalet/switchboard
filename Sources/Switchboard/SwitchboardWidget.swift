@@ -156,13 +156,46 @@ private struct ServiceRow: View {
             }
 
             // Paired drops lifecycle controls, but opening stays useful.
-            if isPaired {
-                openButton
-            } else {
-                controls
-            }
+            ServiceControls(
+                service: service,
+                pendingAction: pendingAction,
+                showsLifecycle: !isPaired,
+                onOpen: onOpen,
+                onAction: onAction
+            )
         }
         .frame(height: 26)
+    }
+}
+
+/// A service's buttons: open, optionally its log, then start, stop and
+/// restart, or progress while one of those settles. Shared by the shelf row
+/// and the menu bar panel so the two never disagree.
+struct ServiceControls: View {
+    let service: Service
+    let pendingAction: String?
+    var showsLifecycle = true
+    let onOpen: (URL) -> Void
+    var onShowLog: (() -> Void)?
+    let onAction: (String) -> Void
+
+    var body: some View {
+        openButton
+
+        if let onShowLog, service.origin == .companion {
+            Button {
+                onShowLog()
+            } label: {
+                Image(systemName: "text.alignleft")
+            }
+            .buttonStyle(DroppyCircleButtonStyle(size: 20))
+            .help("Show the log of \(service.name)")
+            .accessibilityLabel("Show the log of \(service.name)")
+        }
+
+        if showsLifecycle {
+            controls
+        }
     }
 
     @ViewBuilder
@@ -181,8 +214,6 @@ private struct ServiceRow: View {
 
     @ViewBuilder
     private var controls: some View {
-        openButton
-
         // Until the service reaches the state the action asked for, its
         // status is stale: a restart passes through stopped, which would
         // offer Start mid-restart.

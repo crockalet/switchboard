@@ -13,63 +13,83 @@ extension SwitchboardDroplet: MenuBarExtraProviding {
     }
 }
 
+/// The host draws this in a panel under the status item, not in an NSMenu, so
+/// it is a view of rows with their own buttons: a SwiftUI `Menu` here renders
+/// as a pop-up button that never opens.
 private struct SwitchboardMenu: View {
     @ObservedObject var droplet: SwitchboardDroplet
     @ObservedObject var store: SwitchboardStore
 
     var body: some View {
-        if store.services.isEmpty {
-            Text("No services")
-            Divider()
-        } else {
-            ForEach(store.services) { service in
-                Menu(label(for: service)) {
-                    if let url = service.url {
-                        Button("Open \(url.absoluteString)") { droplet.open(url) }
-                    }
-
-                    if service.origin == .companion {
-                        Button("Show log") { droplet.showLogs(for: service) }
-                    }
-
-                    if let action = store.pending[service.id] {
-                        Text(SwitchboardStore.progressive(of: action))
-                    } else if service.actions.isEmpty {
-                        // A portless-only row: show the omission, not dead buttons.
-                        Text("Read only — not in the companion's config")
-                    } else {
-                        if service.status == .running {
-                            if service.actions.contains(.restart) {
-                                Button("Restart") { store.perform("restart", on: service) }
-                            }
-                            if service.actions.contains(.stop) {
-                                Button("Stop") { store.perform("stop", on: service) }
-                            }
-                        } else if service.actions.contains(.start) {
-                            Button("Start") { store.perform("start", on: service) }
-                        }
+        VStack(alignment: .leading, spacing: DroppySpacing.sm) {
+            if store.services.isEmpty {
+                Text("No services")
+                    .font(.system(size: 13, weight: .medium))
+            } else {
+                VStack(spacing: DroppySpacing.xs) {
+                    ForEach(store.services) { service in
+                        row(service)
                     }
                 }
+                .droppyFlatGlassControls()
             }
+
+            if let note {
+                Text(note)
+                    .font(.system(size: 11))
+                    .foregroundStyle(AdaptiveColors.secondaryTextAuto)
+            }
+
             Divider()
-        }
 
-        if !store.companionReachable {
-            Text("Companion not running — read only")
+            HStack(spacing: DroppySpacing.sm) {
+                Button("Refresh") { droplet.refresh() }
+                    .buttonStyle(DroppyQuietButtonStyle(size: .small))
+                Spacer(minLength: 0)
+                Button("Settings…") { droplet.openSettings() }
+                    .buttonStyle(DroppyQuietButtonStyle(size: .small))
+            }
         }
-        if !store.proxyRunning {
-            Text("portless proxy is down")
-        }
-
-        Button("Refresh") { droplet.refresh() }
-        Button("Switchboard settings…") { droplet.openSettings() }
+        .foregroundStyle(AdaptiveColors.primaryTextAuto)
+        .padding(.vertical, DroppySpacing.xs)
+        .frame(minWidth: 280, alignment: .leading)
     }
 
-    private func label(for service: Service) -> String {
-        let mark = service.status == .running ? "●" : "○"
-        if let port = service.port {
-            return "\(mark)  \(service.name)   :\(port)"
+    private func row(_ service: Service) -> some View {
+        HStack(spacing: DroppySpacing.sm) {
+            Circle()
+                .fill(service.status == .running ? Color.green : AdaptiveColors.secondaryTextAuto.opacity(0.5))
+                .frame(width: 6, height: 6)
+
+            Text(service.name)
+                .font(.system(size: 13))
+                .lineLimit(1)
+
+            Spacer(minLength: DroppySpacing.md)
+
+            if let port = service.port {
+                Text(String(port))
+                    .font(.system(size: 11))
+                    .monospacedDigit()
+                    .foregroundStyle(AdaptiveColors.secondaryTextAuto)
+            }
+
+            ServiceControls(
+                service: service,
+                pendingAction: store.pending[service.id],
+                onOpen: { droplet.open($0) },
+                onShowLog: { droplet.showLogs(for: service) },
+                onAction: { store.perform($0, on: service) }
+            )
         }
-        return "\(mark)  \(service.name)"
+        .frame(height: 24)
+        // A portless-only row has no lifecycle buttons; say why.
+        .help(service.actions.isEmpty ? "Read only: not in the companion's config" : "")
+    }
+
+    private var note: String? {
+        if !store.companionReachable { return "Companion not running: read only" }
+        if !store.proxyRunning { return "The portless proxy is not running" }
+        return nil
     }
 }
