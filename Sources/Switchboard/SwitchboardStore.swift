@@ -14,6 +14,9 @@ public final class SwitchboardStore: ObservableObject {
     @Published public private(set) var companionReachable = false
     @Published public private(set) var proxyRunning = false
     @Published public private(set) var lastError: String?
+    /// The action in flight per service id, until the service reaches the
+    /// state it asked for; the rows show progress instead of a stale control.
+    @Published public private(set) var pending: [String: String] = [:]
 
     /// Set by the droplet, which owns how an announcement is shown.
     public var announce: ((ActionAnnouncement) -> Void)?
@@ -68,6 +71,7 @@ public final class SwitchboardStore: ObservableObject {
         refreshTask = nil
         actionTasks.values.forEach { $0.cancel() }
         actionTasks.removeAll()
+        pending.removeAll()
     }
 
     /// Forgets what the last refresh saw, for a clean start after re-enabling.
@@ -148,18 +152,24 @@ public final class SwitchboardStore: ObservableObject {
     // MARK: - Actions
 
     public func perform(_ action: String, on service: Service) {
-        guard isRunning, service.origin == .companion else { return }
+        // A second press while one is in flight would start or restart twice.
+        guard isRunning, service.origin == .companion, pending[service.id] == nil else { return }
         let id = String(service.id.dropFirst("companion:".count))
         let key = UUID()
         let companion = self.companion
+        pending[service.id] = action
 
         actionTasks[key] = Task { [weak self] in
-            defer { self?.actionTasks[key] = nil }
+            defer {
+                self?.actionTasks[key] = nil
+                self?.pending[service.id] = nil
+            }
             do {
                 try await companion.perform(action, on: id)
                 // Disabled while the companion worked: say nothing.
                 guard let self, !Task.isCancelled else { return }
-                await self.refresh()
+                await self.settle(service.id, after: action)
+                guard !Task.isCancelled else { return }
                 self.announce?(ActionAnnouncement(
                     symbol: Self.symbol(for: action),
                     headline: "\(service.name) \(Self.pastTense(of: action))"
@@ -183,6 +193,28 @@ public final class SwitchboardStore: ObservableObject {
                     failure: "The companion is not reachable."
                 ))
             }
+        }
+    }
+
+    /// Refreshes until the service shows the state `action` leads to, for up
+    /// to ten seconds: a restart passes through stopped, and a process can
+    /// take a moment to bind its port.
+    private func settle(_ serviceID: String, after action: String) async {
+        let target: ServiceStatus = action == "stop" ? .stopped : .running
+        for attempt in 0..<10 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            guard !Task.isCancelled else { return }
+            await refresh()
+            if services.first(where: { $0.id == serviceID })?.status == target { return }
+        }
+    }
+
+    /// "Starting…", for a row or a menu while `action` is in flight.
+    static func progressive(of action: String) -> String {
+        switch action {
+        case "start": return "Starting…"
+        case "stop": return "Stopping…"
+        default: return "Restarting…"
         }
     }
 

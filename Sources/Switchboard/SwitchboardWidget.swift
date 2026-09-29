@@ -67,6 +67,7 @@ private struct SwitchboardWidget: View {
                     ForEach(visibleServices) { service in
                         ServiceRow(
                             service: service,
+                            pendingAction: store.pending[service.id],
                             isPaired: context.isPaired,
                             onOpen: { droplet.open($0) },
                             onAction: { store.perform($0, on: service) }
@@ -127,6 +128,7 @@ private struct SwitchboardWidget: View {
 /// actually act on them.
 private struct ServiceRow: View {
     let service: Service
+    let pendingAction: String?
     let isPaired: Bool
     let onOpen: (URL) -> Void
     let onAction: (String) -> Void
@@ -181,6 +183,25 @@ private struct ServiceRow: View {
     private var controls: some View {
         openButton
 
+        // Until the service reaches the state the action asked for, its
+        // status is stale: a restart passes through stopped, which would
+        // offer Start mid-restart.
+        if let pendingAction {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.6)
+                .frame(width: 20, height: 20)
+                .help(SwitchboardStore.progressive(of: pendingAction))
+                .accessibilityLabel(SwitchboardStore.progressive(of: pendingAction))
+                .transition(DroppyTransition.element)
+        } else {
+            lifecycleButtons
+                .transition(DroppyTransition.element)
+        }
+    }
+
+    @ViewBuilder
+    private var lifecycleButtons: some View {
         // Absent for a portless-only row: only the companion can restart it.
         if service.actions.contains(.restart), service.status == .running {
             Button {

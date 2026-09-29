@@ -32,7 +32,9 @@ private struct SwitchboardMenu: View {
                         Button("Show log") { droplet.showLogs(for: service) }
                     }
 
-                    if service.actions.isEmpty {
+                    if let action = store.pending[service.id] {
+                        Text(SwitchboardStore.progressive(of: action))
+                    } else if service.actions.isEmpty {
                         // A portless-only row: show the omission, not dead buttons.
                         Text("Read only — not in the companion's config")
                     } else {
