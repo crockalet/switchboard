@@ -67,7 +67,7 @@ private struct SwitchboardSettingsPane: View {
                         }
                     }
 
-                    DropletControlRow(title: "Check now") {
+                    DropletControlRow(title: "Check now", icon: "arrow.clockwise") {
                         Button("Refresh") { droplet.refresh() }
                     }
                 }
