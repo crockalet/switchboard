@@ -14,7 +14,8 @@
     "network-client",
     "menu-bar",
     "hud",
-    "expanded-surface"
+    "expanded-surface",
+    "shelf-read"
   ],
   "surfaces": [
     "shelf-widget",

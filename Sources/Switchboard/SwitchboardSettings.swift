@@ -54,7 +54,7 @@ private struct SwitchboardSettingsPane: View {
                     ) {
                         DropletValuePill(
                             text: store.companionReachable
-                                ? "Connected on \(droplet.companionPort)"
+                                ? "Connected on \(store.companionEndpoint.port)"
                                 : "Not running"
                         )
                     }
@@ -78,12 +78,13 @@ private struct SwitchboardSettingsPane: View {
                     title: "Refresh interval",
                     value: "\(Int(refreshInterval))s",
                     binding: $refreshInterval,
-                    range: 1...60,
+                    range: SwitchboardStore.minimumRefreshInterval...60,
                     step: 1
                 )
             }
         }
         .onAppear { refreshInterval = droplet.refreshInterval }
+        .onWindowVisibilityChange { droplet.settingsVisibilityChanged($0) }
         // The pill takes typed values and arrow keys too, which never end a
         // drag, so save on every change rather than on release.
         .onChange(of: refreshInterval) { _, value in

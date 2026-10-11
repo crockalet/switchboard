@@ -72,6 +72,7 @@ private struct SwitchboardMenu: View {
         .padding(.horizontal, DroppySpacing.md)
         .padding(.vertical, DroppySpacing.sm)
         .frame(minWidth: 300, alignment: .leading)
+        .onWindowVisibilityChange { droplet.menuVisibilityChanged($0) }
     }
 
     private func row(_ service: Service) -> some View {

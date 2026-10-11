@@ -31,18 +31,23 @@ private struct CompanionResult: Decodable {
 /// Why the companion could not be reached.
 public enum CompanionError: Error, Sendable {
     case notInstalled
+    /// The agent is up but does not accept this token.
+    case unauthorized
     case refused(String)
 }
 
 /// Talks to `switchboard-agent` over loopback. Covered by `network-client`.
 public struct CompanionClient: Sendable {
-    public static let defaultPort = 7878
+    /// A custom header also makes a browser preflight, which the agent never answers.
+    static let tokenHeader = "X-Switchboard-Token"
 
+    public let endpoint: CompanionEndpoint
     public let baseURL: URL
     private let session: URLSession
 
-    public init(port: Int = CompanionClient.defaultPort) {
-        self.baseURL = URL(string: "http://127.0.0.1:\(port)")!
+    public init(endpoint: CompanionEndpoint = CompanionEndpoint()) {
+        self.endpoint = endpoint
+        self.baseURL = URL(string: "http://127.0.0.1:\(endpoint.port)")!
         let configuration = URLSessionConfiguration.ephemeral
         // Loopback: if the companion does not answer quickly, it is not running.
         configuration.timeoutIntervalForRequest = 1.5
@@ -50,30 +55,40 @@ public struct CompanionClient: Sendable {
         self.session = URLSession(configuration: configuration)
     }
 
-    /// True when the companion answers its health probe.
-    public func isReachable() async -> Bool {
-        var request = URLRequest(url: baseURL.appendingPathComponent("v1/health"))
-        request.httpMethod = "GET"
-        guard let (_, response) = try? await session.data(for: request),
-              let http = response as? HTTPURLResponse
-        else { return false }
-        return http.statusCode == 200
+    private func makeRequest(_ url: URL, method: String) -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if let token = endpoint.token {
+            request.setValue(token, forHTTPHeaderField: Self.tokenHeader)
+        }
+        return request
+    }
+
+    private static func checkAuthorized(_ response: URLResponse) throws {
+        if (response as? HTTPURLResponse)?.statusCode == 401 { throw CompanionError.unauthorized }
     }
 
     /// Every service the companion's config describes.
     public func services() async throws -> [Service] {
-        var request = URLRequest(url: baseURL.appendingPathComponent("v1/services"))
-        request.httpMethod = "GET"
+        let request = makeRequest(baseURL.appendingPathComponent("v1/services"), method: "GET")
 
         let data: Data
+        let response: URLResponse
         do {
-            (data, _) = try await session.data(for: request)
+            (data, response) = try await session.data(for: request)
         } catch {
             throw CompanionError.notInstalled
         }
+        try Self.checkAuthorized(response)
 
         let list = try JSONDecoder().decode(CompanionList.self, from: data)
-        return list.services.map { entry in
+        return list.services.compactMap { entry -> Service? in
+            // A pid out of pid_t's range skips the row rather than trapping.
+            var pid: pid_t?
+            if let raw = entry.pid {
+                guard let exact = pid_t(exactly: raw) else { return nil }
+                pid = exact
+            }
             var actions: ServiceActions = []
             if entry.actions.contains("start") { actions.insert(.start) }
             if entry.actions.contains("stop") { actions.insert(.stop) }
@@ -84,7 +99,7 @@ public struct CompanionClient: Sendable {
                 name: entry.name,
                 url: entry.url.flatMap(URL.init(string:)),
                 port: entry.port,
-                pid: entry.pid.map(pid_t.init),
+                pid: pid,
                 origin: .companion,
                 status: ServiceStatus(rawValue: entry.status) ?? .unknown,
                 actions: actions
@@ -101,24 +116,7 @@ public struct CompanionClient: Sendable {
         components?.queryItems = [URLQueryItem(name: "lines", value: String(lines))]
         guard let url = components?.url else { throw CompanionError.notInstalled }
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-
-        let data: Data
-        do {
-            (data, _) = try await session.data(for: request)
-        } catch {
-            throw CompanionError.notInstalled
-        }
-
-        let decoded = try JSONDecoder().decode(CompanionLogs.self, from: data)
-        return (decoded.path, decoded.lines)
-    }
-
-    /// Start, stop or restart; `id` is companion-side, without `companion:`.
-    public func perform(_ action: String, on id: String) async throws {
-        var request = URLRequest(url: baseURL.appendingPathComponent("v1/services/\(id)/\(action)"))
-        request.httpMethod = "POST"
+        let request = makeRequest(url, method: "GET")
 
         let data: Data
         let response: URLResponse
@@ -127,6 +125,24 @@ public struct CompanionClient: Sendable {
         } catch {
             throw CompanionError.notInstalled
         }
+        try Self.checkAuthorized(response)
+
+        let decoded = try JSONDecoder().decode(CompanionLogs.self, from: data)
+        return (decoded.path, decoded.lines)
+    }
+
+    /// Start, stop or restart; `id` is companion-side, without `companion:`.
+    public func perform(_ action: String, on id: String) async throws {
+        let request = makeRequest(baseURL.appendingPathComponent("v1/services/\(id)/\(action)"), method: "POST")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw CompanionError.notInstalled
+        }
+        try Self.checkAuthorized(response)
 
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             let decoded = try? JSONDecoder().decode(CompanionResult.self, from: data)

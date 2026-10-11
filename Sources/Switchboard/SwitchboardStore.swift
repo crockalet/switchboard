@@ -20,12 +20,32 @@ public final class SwitchboardStore: ObservableObject {
     /// Why the last action on a service failed, for a few seconds. A HUD is
     /// not drawn over the open shelf, so the row itself has to say so.
     @Published public private(set) var failures: [String: String] = [:]
+    /// The endpoint requests go to, re-read from the companion's files on
+    /// every refresh.
+    @Published public private(set) var companionEndpoint = CompanionEndpoint()
 
     /// Set by the droplet, which owns how an announcement is shown.
     public var announce: ((ActionAnnouncement) -> Void)?
+    /// Set by the droplet, so the log tail follows a new port or token.
+    public var clientChanged: ((CompanionClient) -> Void)?
 
-    /// Seconds between refreshes. Stored, so the settings pane can change it.
-    public var refreshInterval: TimeInterval = 5
+    public static let minimumRefreshInterval: TimeInterval = 5
+    /// Between refreshes while nothing that shows the list is on screen.
+    public static let idleRefreshInterval: TimeInterval = 60
+
+    /// Seconds between refreshes while the list is on screen.
+    public var refreshInterval: TimeInterval = 5 {
+        didSet { if isWatched { restartLoop() } }
+    }
+
+    /// Whether the shelf widget, the menu bar panel or the settings pane is
+    /// showing; the droplet keeps it current.
+    public var isWatched = false {
+        didSet {
+            // Coming into view refreshes at once rather than after an idle wait.
+            if isWatched, !oldValue { restartLoop() }
+        }
+    }
 
     private let portless: PortlessSource
     private var companion: CompanionClient
@@ -37,19 +57,20 @@ public final class SwitchboardStore: ObservableObject {
     /// nothing lands after the droplet is disabled.
     private var generation = 0
     private var isRunning = false
+    private var lastDecodeFailure: String?
     private weak var log: (any DropletLogService)?
 
-    public init(
-        portless: PortlessSource = PortlessSource(),
-        companionPort: Int = CompanionClient.defaultPort
-    ) {
+    public init(portless: PortlessSource = PortlessSource()) {
         self.portless = portless
-        self.companion = CompanionClient(port: companionPort)
+        self.companion = CompanionClient()
     }
 
-    public func companionPortChanged(to port: Int) {
-        companion = CompanionClient(port: port)
-        Task { await refresh() }
+    private func resolveCompanion() {
+        let endpoint = CompanionLocator.endpoint()
+        guard endpoint != companion.endpoint else { return }
+        companion = CompanionClient(endpoint: endpoint)
+        companionEndpoint = endpoint
+        clientChanged?(companion)
     }
 
     // MARK: - Lifecycle
@@ -58,10 +79,22 @@ public final class SwitchboardStore: ObservableObject {
         self.log = log
         stop()
         isRunning = true
+        clientChanged?(companion)
+        restartLoop()
+    }
+
+    /// Restarts only the poller, leaving actions in flight alone. The first
+    /// pass refreshes at once.
+    private func restartLoop() {
+        guard isRunning else { return }
+        refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                let interval = self?.refreshInterval ?? 5
+                guard let self else { return }
+                let interval = self.isWatched
+                    ? max(self.refreshInterval, Self.minimumRefreshInterval)
+                    : Self.idleRefreshInterval
                 try? await Task.sleep(for: .seconds(interval))
             }
         }
@@ -87,6 +120,8 @@ public final class SwitchboardStore: ObservableObject {
         companionReachable = false
         proxyRunning = false
         lastError = nil
+        lastDecodeFailure = nil
+        isWatched = false
     }
 
     // MARK: - Refresh
@@ -95,6 +130,7 @@ public final class SwitchboardStore: ObservableObject {
         guard isRunning else { return }
         generation += 1
         let token = generation
+        resolveCompanion()
 
         // Keep the list populated without the companion; probes go off-main.
         let source = portless
@@ -112,13 +148,25 @@ public final class SwitchboardStore: ObservableObject {
         } catch CompanionError.notInstalled {
             // Not an error state: read-only is the designed fallback.
             reachable = false
-        } catch let failure {
+        } catch CompanionError.unauthorized {
             reachable = false
-            error = "The companion answered with something Switchboard cannot read: \(failure)"
+            error = Self.tokenMismatch
+        } catch let failure {
+            // A poller restarted mid-request; the next pass answers.
+            if Task.isCancelled { return }
+            reachable = false
+            error = "The companion sent a reply Switchboard cannot read."
+            let detail = String(describing: failure)
+            // Once per distinct failure, not once per poll.
+            if detail != lastDecodeFailure {
+                lastDecodeFailure = detail
+                log?.error("Switchboard: unreadable companion reply — \(detail)")
+            }
         }
 
-        // Disabled, or overtaken by a newer refresh, while this one waited.
-        guard token == generation, isRunning else { return }
+        // Disabled, overtaken by a newer refresh or cancelled while this one waited.
+        guard token == generation, isRunning, !Task.isCancelled else { return }
+        if error == nil { lastDecodeFailure = nil }
 
         lastError = error
         services = merged.sorted { lhs, rhs in
@@ -180,7 +228,7 @@ public final class SwitchboardStore: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self.announce?(ActionAnnouncement(
                     symbol: Self.symbol(for: action),
-                    headline: "\(service.name) \(Self.pastTense(of: action))"
+                    headline: Self.headline(for: action, on: service.name, succeeded: true)
                 ))
             } catch CompanionError.refused(let message) {
                 guard let self, !Task.isCancelled else { return }
@@ -189,8 +237,18 @@ public final class SwitchboardStore: ObservableObject {
                 self.log?.error("Switchboard: \(action) on \(id) refused — \(message)")
                 self.announce?(ActionAnnouncement(
                     symbol: "exclamationmark.triangle.fill",
-                    headline: "\(service.name) did not \(action)",
+                    headline: Self.headline(for: action, on: service.name, succeeded: false),
                     failure: message
+                ))
+            } catch CompanionError.unauthorized {
+                guard let self, !Task.isCancelled else { return }
+                self.showFailure(Self.tokenMismatch, on: service.id)
+                self.lastError = Self.tokenMismatch
+                self.log?.error("Switchboard: \(action) on \(id) refused — token mismatch")
+                self.announce?(ActionAnnouncement(
+                    symbol: "exclamationmark.triangle.fill",
+                    headline: Self.headline(for: action, on: service.name, succeeded: false),
+                    failure: Self.tokenMismatch
                 ))
             } catch {
                 guard let self, !Task.isCancelled else { return }
@@ -199,7 +257,7 @@ public final class SwitchboardStore: ObservableObject {
                 self.log?.error("Switchboard: \(action) on \(id) failed — \(error)")
                 self.announce?(ActionAnnouncement(
                     symbol: "exclamationmark.triangle.fill",
-                    headline: "\(service.name) did not \(action)",
+                    headline: Self.headline(for: action, on: service.name, succeeded: false),
                     failure: "The companion is not reachable."
                 ))
             }
@@ -252,13 +310,19 @@ public final class SwitchboardStore: ObservableObject {
         }
     }
 
-    static func pastTense(of action: String) -> String {
-        switch action {
-        case "start": return "started"
-        case "stop": return "stopped"
-        default: return "restarted"
+    /// A whole sentence per action and outcome, so each can be translated.
+    static func headline(for action: String, on name: String, succeeded: Bool) -> String {
+        switch (action, succeeded) {
+        case ("start", true): return "\(name) started"
+        case ("start", false): return "\(name) did not start"
+        case ("stop", true): return "\(name) stopped"
+        case ("stop", false): return "\(name) did not stop"
+        case (_, true): return "\(name) restarted"
+        case (_, false): return "\(name) did not restart"
         }
     }
+
+    static let tokenMismatch = "The companion did not accept Switchboard's token. Restart switchboard-agent."
 
     public var runningCount: Int {
         services.filter { $0.status == .running }.count

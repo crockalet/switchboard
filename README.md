@@ -7,8 +7,11 @@ A command center for the web services running on your Mac, on
 ## Two halves, on purpose
 
 **Switchboard (this repo)** is the droplet. It declares `network-client`,
-`menu-bar`, `hud` and `expanded-surface`, and nothing else. It reads portless's
-own route table off disk, probes each route for liveness, and draws the list.
+`menu-bar`, `hud`, `expanded-surface` and `shelf-read`, and nothing else. It
+reads portless's own route table off disk, probes each route for liveness, and
+draws the list. It refreshes at your interval (5 seconds or more) only while the
+widget is on the open shelf, the menu bar panel is open or its settings page is
+showing, and once a minute otherwise.
 
 **[switchboard-agent](https://github.com/crockalet/switchboard-agent)** is a separate CLI you install
 yourself. It owns the config that names commands and launchd labels, and it is
@@ -41,6 +44,12 @@ config, and Switchboard just shows it.
 
 When both halves describe the same port, the companion's row wins, because it is
 the one that can act, and it inherits the portless URL.
+
+The agent writes a random token to `~/.config/switchboard/token` (mode 0600) the
+first time it serves, and the droplet sends it with every request, so another
+local process or a web page cannot restart your services. Both halves read the
+port and the token on every refresh: edit the config, restart the agent, and
+Switchboard follows.
 
 While an action settles, its row shows progress instead of a control that is
 already stale. When it fails, the row says why in yellow for a few seconds. With
