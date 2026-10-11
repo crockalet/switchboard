@@ -51,9 +51,18 @@ public struct PortlessSource: Sendable {
 
         let proxy = proxyStatus()
 
-        return routes.map { route in
-            // A real pid is a free liveness signal; an alias needs a port probe.
-            let pid: pid_t? = route.pid > 0 ? pid_t(route.pid) : nil
+        return routes.compactMap { route -> Service? in
+            // An out-of-range number in someone else's file skips the row
+            // rather than trapping inside Droppy.
+            guard (1...65535).contains(route.port) else { return nil }
+            let pid: pid_t?
+            if route.pid > 0 {
+                guard let exact = pid_t(exactly: route.pid) else { return nil }
+                pid = exact
+            } else {
+                // An alias has no process; it needs a port probe.
+                pid = nil
+            }
             let status: ServiceStatus = {
                 if let pid { return Self.isAlive(pid) ? .running : .stopped }
                 return Self.isListening(port: route.port) ? .running : .stopped
@@ -86,12 +95,15 @@ public struct PortlessSource: Sendable {
 
     /// `kill(pid, 0)` asks the kernel; `EPERM` still means the process exists.
     static func isAlive(_ pid: pid_t) -> Bool {
+        // 0 and negatives address process groups, which always "exist".
+        guard pid > 0 else { return false }
         if kill(pid, 0) == 0 { return true }
         return errno == EPERM
     }
 
     /// A short, non-blocking connect distinguishes bound from unbound.
     static func isListening(port: Int, timeout: TimeInterval = 0.12) -> Bool {
+        guard let port = UInt16(exactly: port) else { return false }
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { return false }
         defer { close(fd) }
@@ -102,7 +114,7 @@ public struct PortlessSource: Sendable {
 
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
-        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_port = in_port_t(port.bigEndian)
         addr.sin_addr.s_addr = inet_addr("127.0.0.1")
 
         let result = withUnsafePointer(to: &addr) { pointer in
